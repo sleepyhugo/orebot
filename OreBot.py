@@ -15,6 +15,7 @@ cursor = connection.cursor()
 # Loads the secret token from the .env file
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
+SERVER_ID = int(os.getenv('GUILD_ID'))
 
 BASE_RATE = 0.5
 OFFLINE_CAP = 28800 # 8 hours in seconds
@@ -131,7 +132,7 @@ class Client(commands.Bot):
   async def on_ready(self):
     print(f"Logged on as {self.user}!")
     try:
-      guild = discord.Object(id=1035314643918409728)
+      guild = discord.Object(id=SERVER_ID)
       synced = await self.tree.sync(guild=guild)
       print(f"Synced {len(synced)} commands to guild {guild.id}")
 
@@ -152,7 +153,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = Client(command_prefix="!", intents=intents)
 
-GUILD_ID = discord.Object(id=1035314643918409728)# Server ID 1035314643918409728
+GUILD_ID = discord.Object(id=SERVER_ID)
 
 @client.tree.command(name="mine", description="mining description", guild=GUILD_ID)
 async def mine(interaction: discord.Interaction):
