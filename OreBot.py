@@ -7,7 +7,7 @@ from discord import app_commands
 
 from dotenv import load_dotenv
 
-discord_id = 474066944253886464
+# discord_id = you discord id here
 
 connection = sqlite3.connect("database/OreBot.db")
 cursor = connection.cursor()
@@ -130,10 +130,6 @@ class Client(commands.Bot):
 
   async def on_ready(self):
     print(f"Logged on as {self.user}!")
-    print(upgrade_cost("drone", level = 0))
-    result = await buy(discord_id, "drone")
-    print(result)
-
     try:
       guild = discord.Object(id=1035314643918409728)
       synced = await self.tree.sync(guild=guild)
@@ -174,78 +170,15 @@ async def buy_command(interaction: discord.Interaction, upgrade: str):
     message = f"You need {cost:,.0f} ore, you have {ore:,.0f}."
   await interaction.response.send_message(message)
 
-@client.tree.command(name="printer", description="I will print whatever you give me!", guild=GUILD_ID)
-async def printer(interaction: discord.Interaction, printer: str):
-  await interaction.response.send_message(printer)
-
+# Embed not done yet
 @client.tree.command(name="embed", description="Embed demo!", guild=GUILD_ID)
 async def printer(interaction: discord.Interaction):
   embed = discord.Embed(title="Mine", description="Depth 1 - Copper", color=discord.Color.dark_green())
-  #embed.set_thumbnail(url="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQj7eJQuSPV9GDNcUJ8sl3QdJlBMk6dnuq_g_ZRhq_FnA&s=10")
   embed.add_field(name="Ore", value="ore amount will go here", inline=True)
   embed.add_field(name="Rate", value="time in mins go here /min", inline=True)
   embed.add_field(name="While away", value="ore amount", inline=False)
   embed.set_author(name=interaction.user.name, url="https://github.com/sleepyhugo", icon_url="https://i.etsystatic.com/57565963/r/il/c9ac96/6835519393/il_fullxfull.6835519393_rn0l.jpg")
   embed.set_footer(text="This is the footer!")
   await interaction.response.send_message(embed=embed)
-
-class View(discord.ui.View):
-  @discord.ui.button(label="Click me!", style=discord.ButtonStyle.red, emoji="⛏️")
-  async def button_callback(self, button, interaction):
-    await button.response.send_message("You have clicked the button!")
-
-  @discord.ui.button(label="Second Button", style=discord.ButtonStyle.blurple, emoji="🚀")
-  async def button_callback_two(self, button, interaction):
-    await button.response.send_message("This is the second button!")
-
-  @discord.ui.button(label="Third Button", style=discord.ButtonStyle.green, emoji="🧑‍💻")
-  async def button_callback_three(self, button, interaction):
-    await button.response.send_message("This is the third button!")
-
-@client.tree.command(name="button", description="Displaying a button", guild=GUILD_ID)
-async def myButton(interaction: discord.Interaction):
-  await interaction.response.send_message(view=View())
-
-class Menu(discord.ui.Select):
-  def __init__(self):
-    options = [
-      discord.SelectOption(
-        label="Option 1",
-        description="This is option 1",
-        emoji="🛠️"
-      ),
-      discord.SelectOption(
-        label="Option 2",
-        description="This is option 2",
-        emoji="📊"
-      ),
-      discord.SelectOption(
-        label="Option 3",
-        description="This is option 3",
-        emoji="😊"
-      )
-    ]
-
-    super().__init__(placeholder="Please choose an option:", min_values=1, max_values=1, options=options)
-
-  async def callback(self, interaction: discord.Interaction):
-    if self.values[0] == "Option 1":
-      await interaction.response.send_message("Yayy you've picked option 1")
-
-    elif self.values[0] == "Option 2":
-          await interaction.response.send_message("This is now option 2")
-
-    elif self.values[0] == "Option 3":
-          await interaction.response.send_message("This is the last option!")
-
-
-class MenuView(discord.ui.View):
-  def __init__(self):
-    super().__init__()
-    self.add_item(Menu())
-
-@client.tree.command(name="menu", description="Displaying a drop down menu", guild=GUILD_ID)
-async def myMenu(interaction: discord.Interaction):
-  await interaction.response.send_message(view=MenuView())
 
 client.run(TOKEN)
