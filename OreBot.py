@@ -7,8 +7,6 @@ from discord import app_commands
 
 from dotenv import load_dotenv
 
-# discord_id = you discord id here
-
 connection = sqlite3.connect("database/OreBot.db")
 cursor = connection.cursor()
 
@@ -51,6 +49,30 @@ async def get_rate(user_id):
       upgrade_rate = rate_per_level * level
       rate += upgrade_rate
   return rate
+
+async def get_shop(user_id):
+  gained = await collect(user_id)
+  return_player_ore = cursor.execute("SELECT ore FROM players WHERE user_id = ?", [user_id])
+  row = return_player_ore.fetchone()
+  ore = row[0]
+
+  result = cursor.execute("SELECT upgrade_id, level FROM player_upgrades WHERE user_id = ?", [user_id])
+  player_upgrades = result.fetchall()
+  owned = dict(player_upgrades)
+
+  rows = []
+  for upgrade_id in UPGRADES:
+    level = owned.get(upgrade_id, 0)
+    cost = upgrade_cost(upgrade_id, level)
+    display_name = UPGRADES[upgrade_id]["display_name"]
+    row_dict = {
+      "upgrade_id": upgrade_id,
+      "display_name": display_name,
+      "level": level,
+      "cost": cost
+    }
+    rows.append(row_dict)
+  return (ore, rows)
 
 async def get_or_create_player(user_id):
   result = cursor.execute("SELECT * FROM players WHERE user_id = ?", [user_id])
@@ -131,6 +153,7 @@ class Client(commands.Bot):
 
   async def on_ready(self):
     print(f"Logged on as {self.user}!")
+    print(await get_shop(474066944253886464))
     try:
       guild = discord.Object(id=SERVER_ID)
       synced = await self.tree.sync(guild=guild)
@@ -170,6 +193,15 @@ async def buy_command(interaction: discord.Interaction, upgrade: str):
   else:
     message = f"You need {cost:,.0f} ore, you have {ore:,.0f}."
   await interaction.response.send_message(message)
+
+@client.tree.command(name="shop", description="shop description", guild=GUILD_ID)
+async def shopping(interaction: discord.Interaction):
+  lines = []
+  ore, rows = await get_shop(interaction.user.id)
+  for row in rows:
+    mark = "✅" if row["cost"] <= ore else "❌"
+    lines.append(f"{row['display_name']} - Level: {row['level']} - {row['cost']:,} ore {mark}")
+  await interaction.response.send_message(f"You have {ore:,.0f} ore.\n{'\n'.join(lines)}")
 
 # Embed not done yet
 @client.tree.command(name="embed", description="Embed demo!", guild=GUILD_ID)
