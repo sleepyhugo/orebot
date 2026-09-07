@@ -91,6 +91,14 @@ async def get_or_create_player(user_id):
     print(f"User id: {user_id} is in players table already.\n")
     return players
 
+async def get_leaderboard():
+  """ Ranks on lifetime_ore so spending doesn't lower your position.
+  Doesn't collect first: that would mean a write per player on every
+  call, so the numbers here lag until each player's next collect. """
+  result = cursor.execute("SELECT user_id, lifetime_ore FROM players ORDER BY lifetime_ore DESC LIMIT 10")
+  players = result.fetchall()
+  return players
+
 async def collect(user_id):
   player = await get_or_create_player(user_id)
   ore = player[1]
@@ -202,6 +210,18 @@ async def shopping(interaction: discord.Interaction):
     mark = "✅" if row["cost"] <= ore else "❌"
     lines.append(f"{row['display_name']} - Level: {row['level']} - {row['cost']:,} ore {mark}")
   await interaction.response.send_message(f"You have {ore:,.0f} ore.\n{'\n'.join(lines)}")
+
+@client.tree.command(name="top", description="top 10 leaderboard description", guild=GUILD_ID)
+async def leaderboard(interaction: discord.Interaction):
+  lines = []
+  players = await get_leaderboard()
+  if not players:
+    await interaction.response.send_message("Nobody's mined yet")
+  else:
+    for rank, (user_id, lifetime_ore) in enumerate(players, start=1):
+      lines.append(f"{rank}. <@{user_id}> {lifetime_ore:,.0f} ore")
+    await interaction.response.send_message('\n'.join(lines))
+
 
 # Embed not done yet
 @client.tree.command(name="embed", description="Embed demo!", guild=GUILD_ID)
