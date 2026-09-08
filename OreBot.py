@@ -88,7 +88,6 @@ async def get_or_create_player(user_id):
     players = result.fetchone()
     return players
   else:
-    print(f"User id: {user_id} is in players table already.\n")
     return players
 
 async def get_leaderboard():
@@ -98,6 +97,25 @@ async def get_leaderboard():
   result = cursor.execute("SELECT user_id, lifetime_ore FROM players ORDER BY lifetime_ore DESC LIMIT 10")
   players = result.fetchall()
   return players
+
+async def get_stats(user_id):
+  gained = await collect(user_id)
+  rate = await get_rate(user_id)
+
+  get_ore = cursor.execute("SELECT ore FROM players WHERE user_id = ?", [user_id])
+  player_ore = get_ore.fetchone()
+  ore = player_ore[0]
+
+  get_levels = cursor.execute("SELECT upgrade_id, level FROM player_upgrades WHERE user_id = ?", [user_id])
+  player_level = get_levels.fetchall()
+
+  players_info_dict = {
+                       "gained": gained,
+                       "rate": rate,
+                       "ore": ore,
+                       "upgrades": player_level
+                       }
+  return players_info_dict
 
 async def collect(user_id):
   player = await get_or_create_player(user_id)
@@ -161,7 +179,6 @@ class Client(commands.Bot):
 
   async def on_ready(self):
     print(f"Logged on as {self.user}!")
-    print(await get_shop(474066944253886464))
     try:
       guild = discord.Object(id=SERVER_ID)
       synced = await self.tree.sync(guild=guild)
@@ -170,48 +187,32 @@ class Client(commands.Bot):
     except Exception as e:
       print(f"Error syncing commands: {e}")
 
-  async def on_message(self, message):
-    if message.author == self.user:
-      return
-
-    if message.content.startswith('hello'):
-      await message.channel.send(f"Hi there {message.author}")
-
-  async def on_reaction_add(self, reaction, user):
-    await reaction.message.channel.send("You reacted")
-
 intents = discord.Intents.default()
-intents.message_content = True
-client = Client(command_prefix="!", intents=intents)
-
+client = Client(command_prefix="!", intents=intents, help_command=None)
 GUILD_ID = discord.Object(id=SERVER_ID)
 
-@client.tree.command(name="mine", description="mining description", guild=GUILD_ID)
+@client.tree.command(name="mine", description="Collect the ore you've accumulated", guild=GUILD_ID)
 async def mine(interaction: discord.Interaction):
   gained = await collect(interaction.user.id)
   await interaction.response.send_message(f"You mined {gained:,.0f} ore.")
 
 @client.tree.command(name="buy", description="Buy a pickaxe, cart, or drone.", guild=GUILD_ID)
-async def buy_command(interaction: discord.Interaction, upgrade: str):
-  success, cost, ore = await buy(interaction.user.id, upgrade)
+@app_commands.choices(upgrade=[
+  app_commands.Choice(name="Copper pickaxe", value="pickaxe"),
+  app_commands.Choice(name="Ore cart", value="cart"),
+  app_commands.Choice(name="Mining drone", value="drone"),
+])
+async def buy_command(interaction: discord.Interaction, upgrade: app_commands.Choice[str]):
+  success, cost, ore = await buy(interaction.user.id, upgrade.value)
   if success:
-    message = f"Bought {upgrade} for {cost:,.0f} ore. You have {ore:,.0f} left."
+    message = f"Bought {upgrade.value} for {cost:,.0f} ore. You have {ore:,.0f} ore left."
   elif cost is None:
-    message = f"There's no upgrade called '{upgrade}'."
+    message = f"There's no upgrade called '{upgrade.value}'."
   else:
     message = f"You need {cost:,.0f} ore, you have {ore:,.0f}."
   await interaction.response.send_message(message)
 
-@client.tree.command(name="shop", description="shop description", guild=GUILD_ID)
-async def shopping(interaction: discord.Interaction):
-  lines = []
-  ore, rows = await get_shop(interaction.user.id)
-  for row in rows:
-    mark = "✅" if row["cost"] <= ore else "❌"
-    lines.append(f"{row['display_name']} - Level: {row['level']} - {row['cost']:,} ore {mark}")
-  await interaction.response.send_message(f"You have {ore:,.0f} ore.\n{'\n'.join(lines)}")
-
-@client.tree.command(name="top", description="top 10 leaderboard description", guild=GUILD_ID)
+@client.tree.command(name="top", description="See the top 10 miners", guild=GUILD_ID)
 async def leaderboard(interaction: discord.Interaction):
   lines = []
   players = await get_leaderboard()
@@ -222,16 +223,74 @@ async def leaderboard(interaction: discord.Interaction):
       lines.append(f"{rank}. <@{user_id}> {lifetime_ore:,.0f} ore")
     await interaction.response.send_message('\n'.join(lines))
 
+@client.tree.command(name="shop", description="Browse upgrades", guild=GUILD_ID)
+async def shopping(interaction: discord.Interaction):
+  ore, rows = await get_shop(interaction.user.id)
 
-# Embed not done yet
-@client.tree.command(name="embed", description="Embed demo!", guild=GUILD_ID)
-async def printer(interaction: discord.Interaction):
-  embed = discord.Embed(title="Mine", description="Depth 1 - Copper", color=discord.Color.dark_green())
-  embed.add_field(name="Ore", value="ore amount will go here", inline=True)
-  embed.add_field(name="Rate", value="time in mins go here /min", inline=True)
-  embed.add_field(name="While away", value="ore amount", inline=False)
-  embed.set_author(name=interaction.user.name, url="https://github.com/sleepyhugo", icon_url="https://i.etsystatic.com/57565963/r/il/c9ac96/6835519393/il_fullxfull.6835519393_rn0l.jpg")
-  embed.set_footer(text="This is the footer!")
+  embed = discord.Embed(
+    title="🛒 Shop",
+    description=f"You have **{ore:,.0f}** ore",
+    color=discord.Color.dark_green()
+  )
+
+  for row in rows:
+    upgrade_id = row["upgrade_id"]
+    level = row["level"]
+    cost = row["cost"]
+
+    rate_per_level = UPGRADES[upgrade_id]["rate_per_level"] * 60
+    current_rate = rate_per_level * level
+    next_rate = rate_per_level * (level + 1)
+
+    affordable = cost <= ore
+    mark = "✅" if affordable else "❌"
+
+    embed.add_field(
+      name=f"{mark} {row['display_name']} — Lv {level}",
+      value=(
+        f"Cost: **{cost:,}** ore\n"
+        f"+{current_rate:,.0f}/min → **+{next_rate:,.0f}/min**"
+      ),
+      inline=False
+    )
+
+  embed.set_footer(text="/buy to purchase")
+  await interaction.response.send_message(embed=embed)
+
+@client.tree.command(name="stats", description="View your mine", guild=GUILD_ID)
+async def stats_command(interaction: discord.Interaction):
+  stats = await get_stats(interaction.user.id)
+
+  embed = discord.Embed(
+    title="⛏️ Your mine",
+    color=discord.Color.dark_green()
+  )
+
+  embed.add_field(name="Ore", value=f"**{stats['ore']:,.0f}**", inline=True)
+  embed.add_field(name="Rate", value=f"**{stats['rate'] * 60:,.0f}**/min", inline=True)
+
+  if stats['gained'] >= 1:
+    embed.add_field(
+      name="\u200b",
+      value=f"🌙 Collected **{stats['gained']:,.0f}** ore while you were away",
+      inline=False
+    )
+
+  lines = []
+  for upgrade_id, level in stats['upgrades']:
+    if upgrade_id in UPGRADES:
+      name = UPGRADES[upgrade_id]["display_name"]
+      rate = UPGRADES[upgrade_id]["rate_per_level"] * level * 60
+      lines.append(f"`{level}x` {name} — +{rate:,.0f}/min")
+
+  if not lines:
+    lines.append("*Nothing yet — try `/shop`*")
+
+  embed.add_field(name="Equipment", value="\n".join(lines), inline=False)
+
+  embed.set_author(name=interaction.user.name, icon_url=interaction.user.display_avatar.url)
+  embed.set_footer(text="/mine to collect · /shop to upgrade")
+
   await interaction.response.send_message(embed=embed)
 
 client.run(TOKEN)
