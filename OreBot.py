@@ -20,22 +20,37 @@ OFFLINE_CAP = 28800 # 8 hours in seconds
 
 UPGRADES = {
   "pickaxe": {
-    "display_name": "Copper pickaxe",
     "rate_per_level": 0.2,
     "base_cost": 25,
-    "cost_growth": 1.15
+    "cost_growth": 1.15,
+    "tiers": [
+      (0, "Copper pickaxe"),
+      (6, "Iron pickaxe"),
+      (16, "Steel pickaxe"),
+      (31, "Diamond pickaxe"),
+    ]
   },
   "cart": {
-    "display_name": "Ore cart",
     "rate_per_level": 1.0,
     "base_cost": 300,
-    "cost_growth": 1.15
+    "cost_growth": 1.15,
+    "tiers": [
+      (0, "Wooden cart"),
+      (6, "Reinforced cart"),
+      (16, "Powered cart"),
+      (31, "Maglev cart"),
+    ]
   },
   "drone": {
-    "display_name": "Mining drone",
     "rate_per_level": 4.0,
     "base_cost": 2500,
-    "cost_growth": 1.15
+    "cost_growth": 1.15,
+    "tiers": [
+      (0, "Scout drone"),
+      (6, "Survey drone"),
+      (16, "Industrial drone"),
+      (31, "Drone swarm"),
+    ]
   }
 }
 
@@ -64,10 +79,10 @@ async def get_shop(user_id):
   for upgrade_id in UPGRADES:
     level = owned.get(upgrade_id, 0)
     cost = upgrade_cost(upgrade_id, level)
-    display_name = UPGRADES[upgrade_id]["display_name"]
+    name = display_name(upgrade_id, level)
     row_dict = {
       "upgrade_id": upgrade_id,
-      "display_name": display_name,
+      "display_name": name,
       "level": level,
       "cost": cost
     }
@@ -143,9 +158,18 @@ def upgrade_cost(upgrade_id, level):
   total = base_cost * cost_growth ** level
   return int(total)
 
+def display_name(upgrade_id, level):
+  """ Returns the tier name for this upgrade at this level.
+  Walks the tier list in ascending order; the last match wins. """
+  name = None
+  for min_level, tier_name in UPGRADES[upgrade_id]["tiers"]:
+    if level >= min_level:
+      name = tier_name
+  return name
+
 async def buy(user_id, upgrade_id):
   if upgrade_id not in UPGRADES:
-    return (False, None, None) # upgrade_id doesn exist
+    return (False, None, None, None) # upgrade_id doesn't exist
   gained = await collect(user_id)
   return_player_ore = cursor.execute("SELECT ore FROM players WHERE user_id = ?", [user_id])
   row = return_player_ore.fetchone()
@@ -171,9 +195,22 @@ async def buy(user_id, upgrade_id):
       cursor.execute("INSERT INTO player_upgrades (user_id, upgrade_id, level) VALUES (?, ?, ?)", [user_id, upgrade_id, level])
     cursor.execute("UPDATE players SET ore=? WHERE user_id=?", [ore, user_id])
     connection.commit()
-    return (True, cost, ore) # Bought upgrade
+    return (True, cost, ore, level) # Bought upgrade
   else:
-    return (False, cost, ore) # Can't afford
+    return (False, cost, ore, level) # Can't afford
+
+async def upgrade_autocomplete(interaction: discord.Interaction, current: str):
+  result = cursor.execute("SELECT upgrade_id, level FROM player_upgrades WHERE user_id = ?", [interaction.user.id])
+  owned = dict(result.fetchall())
+
+  choices = []
+  for upgrade_id in UPGRADES:
+    level = owned.get(upgrade_id, 0)
+    name = display_name(upgrade_id, level)
+    label = f"{name} (Lv {level})"
+    if current.lower() in label.lower():
+      choices.append(app_commands.Choice(name=label, value=upgrade_id))
+  return choices
 
 class Client(commands.Bot):
 
@@ -197,17 +234,13 @@ async def mine(interaction: discord.Interaction):
   await interaction.response.send_message(f"You mined {gained:,.0f} ore.")
 
 @client.tree.command(name="buy", description="Buy a pickaxe, cart, or drone.", guild=GUILD_ID)
-@app_commands.choices(upgrade=[
-  app_commands.Choice(name="Copper pickaxe", value="pickaxe"),
-  app_commands.Choice(name="Ore cart", value="cart"),
-  app_commands.Choice(name="Mining drone", value="drone"),
-])
-async def buy_command(interaction: discord.Interaction, upgrade: app_commands.Choice[str]):
-  success, cost, ore = await buy(interaction.user.id, upgrade.value)
+@app_commands.autocomplete(upgrade=upgrade_autocomplete)
+async def buy_command(interaction: discord.Interaction, upgrade: str):
+  success, cost, ore, level = await buy(interaction.user.id, upgrade)
   if success:
-    message = f"Bought {upgrade.value} for {cost:,.0f} ore. You have {ore:,.0f} ore left."
+    message = f"Bought {display_name(upgrade, level)} for {cost:,.0f} ore (Lv {level}). You have {ore:,.0f} ore left."
   elif cost is None:
-    message = f"There's no upgrade called '{upgrade.value}'."
+    message = f"There's no upgrade called '{upgrade}'."
   else:
     message = f"You need {cost:,.0f} ore, you have {ore:,.0f}."
   await interaction.response.send_message(message)
@@ -279,7 +312,7 @@ async def stats_command(interaction: discord.Interaction):
   lines = []
   for upgrade_id, level in stats['upgrades']:
     if upgrade_id in UPGRADES:
-      name = UPGRADES[upgrade_id]["display_name"]
+      name = display_name(upgrade_id, level)
       rate = UPGRADES[upgrade_id]["rate_per_level"] * level * 60
       lines.append(f"`{level}x` {name} — +{rate:,.0f}/min")
 
