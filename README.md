@@ -80,7 +80,9 @@ python OreBot.py
 ## Known limitations
 
 - No maximum level on upgrades
-- Concurrent commands from the same player could double-pay; needs a per-user lock or a synchronous read-compute-write
+- Every database call blocks the event loop; the `async` functions have no
+  real suspension points, so they gain nothing from being coroutines. Would
+  need `aiosqlite` or `asyncio.to_thread` to fix properly.
 - Ore and level queries are duplicated across several functions
 - Leaderboard numbers lag until each player's next collect
 - Runs against a single SQLite file with no connection pooling
